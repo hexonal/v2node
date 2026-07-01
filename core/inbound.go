@@ -174,19 +174,16 @@ func buildInbound(nodeInfo *panel.NodeInfo, tag string) (*core.InboundHandlerCon
 	default:
 		break
 	}
-	// Server-side TCP_FASTOPEN: same reasoning as the freedom outbound in
-	// outbound.go — xray-core only calls setsockopt() when SocketSettings
-	// is non-nil, so the listener needs this explicitly to actually accept
-	// TFO from clients (saves the client 1 RTT on their first request),
-	// even though net.ipv4.tcp_fastopen sysctl is already set to 3 on all
-	// nodes. Preserve AcceptProxyProtocol if it was already set above.
-	if in.StreamSetting == nil {
-		in.StreamSetting = &coreConf.StreamConfig{}
-	}
-	if in.StreamSetting.SocketSettings == nil {
-		in.StreamSetting.SocketSettings = &coreConf.SocketConfig{}
-	}
-	in.StreamSetting.SocketSettings.TFO = true
+	// Tried enabling server-side TCP_FASTOPEN here (listener-side sockopt,
+	// same reasoning as the freedom outbound's TCP_FASTOPEN_CONNECT below)
+	// but reverted: on the deployed nodes' kernel, setsockopt(TCP_FASTOPEN,
+	// 256) returns ENOPROTOOPT ("protocol not available") — confirmed via
+	// live logs, not a config mistake, likely a cloud-kernel restriction
+	// on this specific sockopt even with net.ipv4.tcp_fastopen=3 set and
+	// visible in-container. Non-fatal (connection still completes without
+	// TFO), but pure log noise with no benefit, so left disabled here.
+	// Client-side TCP_FASTOPEN_CONNECT in outbound.go is unaffected and
+	// confirmed working.
 	in.Tag = tag
 	return in.Build()
 }
