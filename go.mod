@@ -169,9 +169,9 @@ require (
 	github.com/sacloud/iaas-api-go v1.16.1 // indirect
 	github.com/sacloud/packages-go v0.0.11 // indirect
 	github.com/sagernet/quic-go v0.59.0-sing-box-mod.2 // indirect
-	github.com/sagernet/sing v0.8.9 // indirect
+	github.com/sagernet/sing v0.8.11 // indirect
 	github.com/sagernet/sing-quic v0.6.1 // indirect
-	github.com/sagernet/sing-shadowsocks v0.2.7 // indirect
+	github.com/sagernet/sing-shadowsocks v0.2.9 // indirect
 	github.com/sagikazarmark/locafero v0.4.0 // indirect
 	github.com/sagikazarmark/slog-shim v0.1.0 // indirect
 	github.com/scaleway/scaleway-sdk-go v1.0.0-beta.34 // indirect
@@ -238,4 +238,4 @@ require (
 	lukechampine.com/blake3 v1.4.1 // indirect
 )
 
-replace github.com/xtls/xray-core v1.260622.0 => github.com/wyx2685/xray-core v0.0.0-20260624014836-20531d9dab04
+replace github.com/xtls/xray-core => github.com/hexonal/Xray-core v0.0.0-20260701165834-59d78fc6687a
