@@ -155,14 +155,42 @@ type EncSettings struct {
 	PrivateKey    string `json:"private_key"`
 }
 
+// localRoutesChanged reports whether c.LocalRoutesPath's mtime differs from
+// the last time GetNodeInfo checked it, and updates the tracked mtime.
+// It intentionally does not read/parse the file (loadLocalRoutes already
+// caches that); it only needs a cheap signal so a local-only edit isn't
+// masked by the panel's own "unchanged" short-circuits below.
+func (c *Client) localRoutesChanged() bool {
+	if c.LocalRoutesPath == "" {
+		return false
+	}
+	fi, err := os.Stat(c.LocalRoutesPath)
+	if err != nil {
+		// Missing/unreadable file: nothing to force a refresh for.
+		return false
+	}
+	if c.localRoutesModTimeSet && fi.ModTime().Equal(c.localRoutesModTime) {
+		return false
+	}
+	c.localRoutesModTime = fi.ModTime()
+	c.localRoutesModTimeSet = true
+	return true
+}
+
 func (c *Client) GetNodeInfo(ctx context.Context) (node *NodeInfo, err error) {
 	const path = "/api/v2/server/config"
-	r, err := c.client.
-		R().
-		SetContext(ctx).
-		SetHeader("If-None-Match", c.nodeEtag).
-		ForceContentType("application/json").
-		Get(path)
+	// Checked up front (and unconditionally, even on a 304/hash-unchanged
+	// panel response below) so that editing only the local routes file
+	// still triggers a rebuild on the next poll, without requiring a
+	// v2node restart.
+	forceRefresh := c.localRoutesChanged()
+	req := c.client.R().SetContext(ctx).ForceContentType("application/json")
+	if !forceRefresh {
+		// Only send the conditional header when we don't need a guaranteed
+		// full body back: a forced refresh must not risk a bodyless 304.
+		req.SetHeader("If-None-Match", c.nodeEtag)
+	}
+	r, err := req.Get(path)
 	if err != nil {
 		return nil, err
 	}
@@ -170,12 +198,12 @@ func (c *Client) GetNodeInfo(ctx context.Context) (node *NodeInfo, err error) {
 		return nil, fmt.Errorf("received nil response")
 	}
 
-	if r.StatusCode() == 304 {
+	if r.StatusCode() == 304 && !forceRefresh {
 		return nil, nil
 	}
 	hash := sha256.Sum256(r.Body())
 	newBodyHash := hex.EncodeToString(hash[:])
-	if c.responseBodyHash == newBodyHash {
+	if c.responseBodyHash == newBodyHash && !forceRefresh {
 		return nil, nil
 	}
 	c.responseBodyHash = newBodyHash

@@ -15,16 +15,18 @@ import (
 // Panel is the interface for different panel's api.
 
 type Client struct {
-	client           *resty.Client
-	APIHost          string
-	Token            string
-	NodeId           int
-	nodeEtag         string
-	userEtag         string
-	responseBodyHash string
-	UserList         *UserListBody
-	AliveMap         *AliveMap
-	LocalRoutesPath  string
+	client                *resty.Client
+	APIHost               string
+	Token                 string
+	NodeId                int
+	nodeEtag              string
+	userEtag              string
+	responseBodyHash      string
+	UserList              *UserListBody
+	AliveMap              *AliveMap
+	LocalRoutesPath       string
+	localRoutesModTime    time.Time
+	localRoutesModTimeSet bool
 }
 
 func New(c *conf.NodeConfig) (*Client, error) {
