@@ -25,6 +25,9 @@ import (
 )
 
 func (v *V2Core) GetUserManager(tag string) (proxy.UserManager, error) {
+	if v == nil || v.ihm == nil {
+		return nil, fmt.Errorf("inbound handler manager is not ready")
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	handler, err := v.ihm.GetHandler(ctx, tag)
