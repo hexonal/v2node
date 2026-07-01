@@ -48,7 +48,7 @@ func (v *V2Core) addInbound(config *core.InboundHandlerConfig) error {
 }
 
 // BuildInbound build Inbound config for different protocol
-func buildInbound(nodeInfo *panel.NodeInfo, tag string) (*core.InboundHandlerConfig, error) {
+func buildInbound(nodeInfo *panel.NodeInfo, tag string, inboundTFO bool) (*core.InboundHandlerConfig, error) {
 	in := &coreConf.InboundDetourConfig{}
 	var err error
 	switch nodeInfo.Type {
@@ -174,16 +174,25 @@ func buildInbound(nodeInfo *panel.NodeInfo, tag string) (*core.InboundHandlerCon
 	default:
 		break
 	}
-	// Tried enabling server-side TCP_FASTOPEN here (listener-side sockopt,
-	// same reasoning as the freedom outbound's TCP_FASTOPEN_CONNECT below)
-	// but reverted: on the deployed nodes' kernel, setsockopt(TCP_FASTOPEN,
-	// 256) returns ENOPROTOOPT ("protocol not available") — confirmed via
-	// live logs, not a config mistake, likely a cloud-kernel restriction
-	// on this specific sockopt even with net.ipv4.tcp_fastopen=3 set and
-	// visible in-container. Non-fatal (connection still completes without
-	// TFO), but pure log noise with no benefit, so left disabled here.
+	// Server-side TCP_FASTOPEN is opt-in per node via inboundTFO (default
+	// false). On the currently deployed nodes' kernel, setsockopt(
+	// TCP_FASTOPEN, 256) returns ENOPROTOOPT ("protocol not available") —
+	// confirmed via live logs, not a config mistake, likely a cloud-kernel
+	// restriction on this specific sockopt even with net.ipv4.tcp_fastopen=3
+	// set and visible in-container. Non-fatal (connection still completes
+	// without TFO) but pure log noise with no benefit there, hence default
+	// off — kept configurable since a different host/kernel may support it.
 	// Client-side TCP_FASTOPEN_CONNECT in outbound.go is unaffected and
-	// confirmed working.
+	// confirmed working regardless of this setting.
+	if inboundTFO {
+		if in.StreamSetting == nil {
+			in.StreamSetting = &coreConf.StreamConfig{}
+		}
+		if in.StreamSetting.SocketSettings == nil {
+			in.StreamSetting.SocketSettings = &coreConf.SocketConfig{}
+		}
+		in.StreamSetting.SocketSettings.TFO = true
+	}
 	in.Tag = tag
 	return in.Build()
 }
@@ -335,6 +344,16 @@ func buildTrojan(nodeInfo *panel.NodeInfo, inbound *coreConf.InboundDetourConfig
 		if err != nil {
 			return fmt.Errorf("unmarshal grpc settings error: %s", err)
 		}
+	case "httpupgrade":
+		err := json.Unmarshal(v.NetworkSettings, &inbound.StreamSetting.HTTPUPGRADESettings)
+		if err != nil {
+			return fmt.Errorf("unmarshal httpupgrade settings error: %s", err)
+		}
+	case "splithttp", "xhttp":
+		err := json.Unmarshal(v.NetworkSettings, &inbound.StreamSetting.SplitHTTPSettings)
+		if err != nil {
+			return fmt.Errorf("unmarshal xhttp settings error: %s", err)
+		}
 	default:
 		return errors.New("the network type is not vail")
 	}
@@ -440,9 +459,23 @@ func buildHysteria2(nodeInfo *panel.NodeInfo, inbound *coreConf.InboundDetourCon
 		Version: 2,
 	}
 	finalmask := &coreConf.FinalMask{}
-	if !s.Ignore_Client_Bandwidth && (s.UpMbps > 0 || s.DownMbps > 0) {
+	// Ignore_Client_Bandwidth's own name states the intent: true means
+	// force the panel-configured Up/Down regardless of what the client
+	// reports ("force-brutal": constant-rate sender, no real congestion
+	// backoff — self-congesting if the configured rate exceeds the actual
+	// path's capacity). false means respect the client's reported rate,
+	// i.e. plain "brutal", which takes min(configured, client-reported).
+	// The condition used to be inverted from this (`!s.Ignore_Client_Bandwidth`
+	// gated the force-brutal branch, and Ignore_Client_Bandwidth=true fell
+	// through to no QuicParams at all / plain BBR) — backwards relative to
+	// what the field name promises.
+	if s.UpMbps > 0 || s.DownMbps > 0 {
+		congestion := "brutal"
+		if s.Ignore_Client_Bandwidth {
+			congestion = "force-brutal"
+		}
 		finalmask.QuicParams = &coreConf.QuicParamsConfig{
-			Congestion: "force-brutal",
+			Congestion: congestion,
 			BrutalUp:   up,
 			BrutalDown: down,
 		}
@@ -469,8 +502,23 @@ func buildHysteria2(nodeInfo *panel.NodeInfo, inbound *coreConf.InboundDetourCon
 func buildTuic(nodeInfo *panel.NodeInfo, inbound *coreConf.InboundDetourConfig) error {
 	inbound.Protocol = "tuic"
 	s := nodeInfo.Common
+	// transport/internet/tuic/service.go only special-cases the literal
+	// string "bbr"; "cubic"/"new_reno"/anything else (including "") falls
+	// through to quic-go's built-in Cubic sender. Leaving this blank when
+	// the panel doesn't set it means tuic silently ends up on Cubic while
+	// hysteria2 (elsewhere in this file) defaults to BBR when unconfigured
+	// — inconsistent with each other, and Cubic is loss-based, which on the
+	// cross-border/high-latency links documented for this deployment tends
+	// to misread ordinary jitter-induced loss as congestion and needlessly
+	// shrink its window (the same reasoning behind standardizing on BBR
+	// everywhere else in this project). Default to "bbr" so an unset panel
+	// value gets the same congestion control as the hysteria2 default.
+	congestionControl := s.CongestionControl
+	if congestionControl == "" {
+		congestionControl = "bbr"
+	}
 	settings := &coreConf.TuicServerConfig{
-		CongestionControl: s.CongestionControl,
+		CongestionControl: congestionControl,
 		ZeroRttHandshake:  s.ZeroRTTHandshake,
 	}
 	t := coreConf.TransportProtocol("tuic")

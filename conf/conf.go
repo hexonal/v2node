@@ -98,6 +98,12 @@ type NodeConfig struct {
 	// API returns, so custom outbounds/routing can be defined without any
 	// panel-side change. Leave empty to disable (default, no behavior change).
 	LocalRoutesPath string `mapstructure:"LocalRoutesPath"`
+	// InboundTFO opts this node's listener into TCP_FASTOPEN. Defaults to
+	// false: on the currently deployed nodes' kernel this setsockopt call
+	// fails with ENOPROTOOPT (confirmed via live logs), so enabling it there
+	// only adds log noise with no benefit. Left configurable per-node in
+	// case a different host/kernel supports it.
+	InboundTFO bool `mapstructure:"InboundTFO"`
 }
 
 func New() *Conf {
