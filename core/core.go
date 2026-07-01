@@ -93,15 +93,16 @@ func getCore(c *conf.Conf, infos []*panel.NodeInfo) *core.Instance {
 	// Inbound config
 	var inBoundConfig []*core.InboundHandlerConfig
 
-	// Policy config
+	// Policy config (overridable via the top-level "Policy" section in
+	// config.json; see conf.PolicyConfig for defaults/semantics)
 	levelPolicyConfig := &coreConf.Policy{
 		StatsUserUplink:   true,
 		StatsUserDownlink: true,
-		Handshake:         proto.Uint32(4),
-		ConnectionIdle:    proto.Uint32(120),
-		UplinkOnly:        proto.Uint32(2),
-		DownlinkOnly:      proto.Uint32(4),
-		BufferSize:        proto.Int32(128),
+		Handshake:         proto.Uint32(c.PolicyConfig.ResolvedHandshake()),
+		ConnectionIdle:    proto.Uint32(c.PolicyConfig.ResolvedConnectionIdle()),
+		UplinkOnly:        proto.Uint32(c.PolicyConfig.ResolvedUplinkOnly()),
+		DownlinkOnly:      proto.Uint32(c.PolicyConfig.ResolvedDownlinkOnly()),
+		BufferSize:        proto.Int32(c.PolicyConfig.ResolvedBufferSize()),
 	}
 	corePolicyConfig := &coreConf.PolicyConfig{}
 	corePolicyConfig.Levels = map[uint32]*coreConf.Policy{0: levelPolicyConfig}
