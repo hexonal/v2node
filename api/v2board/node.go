@@ -5,13 +5,17 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"encoding/json"
+
+	"github.com/sirupsen/logrus"
 )
 
 // Security type
@@ -68,6 +72,44 @@ type Route struct {
 	Match       []string `json:"match"`
 	Action      string   `json:"action"`
 	ActionValue *string  `json:"action_value"`
+}
+
+var localRoutesCache sync.Map // path -> *localRoutesCacheEntry
+
+type localRoutesCacheEntry struct {
+	modTime time.Time
+	routes  []Route
+}
+
+// loadLocalRoutes reads a JSON file containing an array of Route objects,
+// in the same shape the panel's "routes" field uses. This lets an operator
+// define custom outbounds/routing (e.g. route a domain to a local SOCKS5)
+// purely via a local file, without any panel-side support.
+//
+// GetNodeInfo (and therefore this function) runs on every pull_interval
+// tick, so the parsed result is cached by mtime to avoid re-reading and
+// re-parsing the file on every poll when it hasn't changed.
+func loadLocalRoutes(path string) ([]Route, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat file: %w", err)
+	}
+	if cached, ok := localRoutesCache.Load(path); ok {
+		entry := cached.(*localRoutesCacheEntry)
+		if entry.modTime.Equal(fi.ModTime()) {
+			return entry.routes, nil
+		}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read file: %w", err)
+	}
+	var routes []Route
+	if err := json.Unmarshal(data, &routes); err != nil {
+		return nil, fmt.Errorf("parse json: %w", err)
+	}
+	localRoutesCache.Store(path, &localRoutesCacheEntry{modTime: fi.ModTime(), routes: routes})
+	return routes, nil
 }
 
 type BaseConfig struct {
@@ -156,6 +198,14 @@ func (c *Client) GetNodeInfo(ctx context.Context) (node *NodeInfo, err error) {
 	err = json.Unmarshal(r.Body(), cm)
 	if err != nil {
 		return nil, fmt.Errorf("decode node params error: %s", err)
+	}
+	if c.LocalRoutesPath != "" {
+		localRoutes, err := loadLocalRoutes(c.LocalRoutesPath)
+		if err != nil {
+			logrus.Warnf("load local routes from %s failed (ignored): %s", c.LocalRoutesPath, err)
+		} else {
+			cm.Routes = append(cm.Routes, localRoutes...)
+		}
 	}
 	switch cm.Protocol {
 	case "vmess", "trojan", "hysteria2", "tuic", "anytls", "vless":

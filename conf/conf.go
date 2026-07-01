@@ -28,6 +28,12 @@ type NodeConfig struct {
 	Key        string `mapstructure:"ApiKey"`
 	Timeout    int    `mapstructure:"Timeout"`
 	RetryCount *int   `mapstructure:"RetryCount"`
+	// LocalRoutesPath points to an optional local JSON file containing an
+	// array of panel.Route objects (same shape the panel's "routes" field
+	// uses). Entries are merged additively with whatever routes the panel
+	// API returns, so custom outbounds/routing can be defined without any
+	// panel-side change. Leave empty to disable (default, no behavior change).
+	LocalRoutesPath string `mapstructure:"LocalRoutesPath"`
 }
 
 func New() *Conf {

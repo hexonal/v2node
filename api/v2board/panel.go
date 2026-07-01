@@ -24,6 +24,7 @@ type Client struct {
 	responseBodyHash string
 	UserList         *UserListBody
 	AliveMap         *AliveMap
+	LocalRoutesPath  string
 }
 
 func New(c *conf.NodeConfig) (*Client, error) {
@@ -55,11 +56,12 @@ func New(c *conf.NodeConfig) (*Client, error) {
 		"token":     c.Key,
 	})
 	return &Client{
-		client:   client,
-		Token:    c.Key,
-		APIHost:  c.APIHost,
-		NodeId:   c.NodeID,
-		UserList: &UserListBody{},
-		AliveMap: &AliveMap{},
+		client:          client,
+		Token:           c.Key,
+		APIHost:         c.APIHost,
+		NodeId:          c.NodeID,
+		UserList:        &UserListBody{},
+		AliveMap:        &AliveMap{},
+		LocalRoutesPath: c.LocalRoutesPath,
 	}, nil
 }
