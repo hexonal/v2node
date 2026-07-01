@@ -174,6 +174,19 @@ func buildInbound(nodeInfo *panel.NodeInfo, tag string) (*core.InboundHandlerCon
 	default:
 		break
 	}
+	// Server-side TCP_FASTOPEN: same reasoning as the freedom outbound in
+	// outbound.go — xray-core only calls setsockopt() when SocketSettings
+	// is non-nil, so the listener needs this explicitly to actually accept
+	// TFO from clients (saves the client 1 RTT on their first request),
+	// even though net.ipv4.tcp_fastopen sysctl is already set to 3 on all
+	// nodes. Preserve AcceptProxyProtocol if it was already set above.
+	if in.StreamSetting == nil {
+		in.StreamSetting = &coreConf.StreamConfig{}
+	}
+	if in.StreamSetting.SocketSettings == nil {
+		in.StreamSetting.SocketSettings = &coreConf.SocketConfig{}
+	}
+	in.StreamSetting.SocketSettings.TFO = true
 	in.Tag = tag
 	return in.Build()
 }
