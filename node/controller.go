@@ -75,7 +75,7 @@ func (c *Controller) Start(x *core.V2Core) error {
 		}
 	}
 	// Add new tag
-	err = c.server.AddNode(c.tag, node, c.conf.InboundTFO)
+	err = c.server.AddNode(c.tag, node, c.conf)
 	if err != nil {
 		return fmt.Errorf("add new node error: %s", err)
 	}

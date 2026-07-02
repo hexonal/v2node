@@ -5,12 +5,13 @@ import (
 
 	"encoding/json"
 
+	vconf "github.com/wyx2685/v2node/conf"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/infra/conf"
 )
 
 // build default freedom outbund
-func buildDefaultOutbound() (*core.OutboundHandlerConfig, error) {
+func buildDefaultOutbound(outCfg vconf.OutboundConfig) (*core.OutboundHandlerConfig, error) {
 	outboundDetourConfig := &conf.OutboundDetourConfig{}
 	outboundDetourConfig.Protocol = "freedom"
 	outboundDetourConfig.Tag = "Default"
@@ -18,7 +19,7 @@ func buildDefaultOutbound() (*core.OutboundHandlerConfig, error) {
 	//outboundDetourConfig.SendThrough = &sendthrough
 
 	proxySetting := &conf.FreedomConfig{
-		DomainStrategy: "UseIPv4v6",
+		DomainStrategy: outCfg.ResolvedDomainStrategy(),
 	}
 	var setting json.RawMessage
 	setting, err := json.Marshal(proxySetting)
@@ -33,23 +34,30 @@ func buildDefaultOutbound() (*core.OutboundHandlerConfig, error) {
 	// doesn't opt a given socket in. This is the client side (the 1 RTT
 	// saved when *we* dial a destination); explicit opt-in required.
 	tfo := true
-	outboundDetourConfig.StreamSetting = &conf.StreamConfig{
-		SocketSettings: &conf.SocketConfig{
-			TFO: tfo,
-			// Without this, DialSystem (transport/internet/dialer.go) picks
-			// a *single random* IP from the resolved set for any domain
-			// with 2+ addresses (DomainStrategy is "UseIPv4v6" above, so
-			// dual-stack destinations resolve to both) and dials only that
-			// one — no race, no fallback. A dead/slow IPv6 among the
-			// candidates just hangs with nothing trying the working IPv4
-			// alongside it. This enables RFC 8305-style racing instead:
-			// try up to 4 candidates concurrently, staggered by the
-			// RFC-recommended 250ms, use whichever connects first.
-			HappyEyeballsSettings: &conf.HappyEyeballsConfig{
-				TryDelayMs:       250,
-				MaxConcurrentTry: 4,
-			},
+	// HappyEyeballs enables RFC 8305-style racing: without it DialSystem
+	// picks a single random IP from a multi-address domain and dials only
+	// that one — a dead/slow IPv6 candidate hangs with nothing trying IPv4.
+	// TryDelayMs/MaxConcurrentTry/DomainStrategy are now operator-tunable
+	// (defaults reproduce the old UseIPv4v6 / 250ms / 4); a node with a
+	// broken IPv6 egress can lower TryDelayMs or set DomainStrategy=UseIPv4.
+	he := outCfg.HappyEyeballs
+	sockSettings := &conf.SocketConfig{
+		TFO: tfo,
+		HappyEyeballsSettings: &conf.HappyEyeballsConfig{
+			PrioritizeIPv6:   he.ResolvedPrioritizeIPv6(),
+			TryDelayMs:       he.ResolvedTryDelayMs(),
+			MaxConcurrentTry: he.ResolvedMaxConcurrentTry(),
 		},
+	}
+	if sock := outCfg.Sockopt; sock.HasAny() {
+		sockSettings.TCPKeepAliveIdle = sock.ResolvedKeepAliveIdle()
+		sockSettings.TCPKeepAliveInterval = sock.ResolvedKeepAliveInterval()
+		sockSettings.TCPUserTimeout = sock.ResolvedUserTimeout()
+		sockSettings.TCPCongestion = sock.ResolvedCongestion()
+		sockSettings.TcpMptcp = sock.ResolvedMptcp()
+	}
+	outboundDetourConfig.StreamSetting = &conf.StreamConfig{
+		SocketSettings: sockSettings,
 	}
 	return outboundDetourConfig.Build()
 }

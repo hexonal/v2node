@@ -103,7 +103,7 @@ func (c *Controller) nodeInfoMonitor(ctx context.Context) (err error) {
 
 	// update alive list
 	if newA != nil {
-		c.limiter.AliveList = newA
+		c.limiter.AliveList.Store(&newA)
 	}
 	// node no changed, check users
 	if len(newU) == 0 {

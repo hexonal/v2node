@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	panel "github.com/wyx2685/v2node/api/v2board"
+	vconf "github.com/wyx2685/v2node/conf"
 	"github.com/xtls/xray-core/app/dns"
 	"github.com/xtls/xray-core/app/router"
 	xnet "github.com/xtls/xray-core/common/net"
@@ -42,7 +43,7 @@ func hasOutboundWithTag(list []*core.OutboundHandlerConfig, tag string) bool {
 	return false
 }
 
-func GetCustomConfig(infos []*panel.NodeInfo) (*dns.Config, []*core.OutboundHandlerConfig, *router.Config, error) {
+func GetCustomConfig(infos []*panel.NodeInfo, outCfg vconf.OutboundConfig) (*dns.Config, []*core.OutboundHandlerConfig, *router.Config, error) {
 	//dns
 	queryStrategy := "UseIPv4v6"
 	if !hasPublicIPv6() {
@@ -59,7 +60,7 @@ func GetCustomConfig(infos []*panel.NodeInfo) (*dns.Config, []*core.OutboundHand
 		QueryStrategy: queryStrategy,
 	}
 	//outbound
-	defaultoutbound, _ := buildDefaultOutbound()
+	defaultoutbound, _ := buildDefaultOutbound(outCfg)
 	coreOutboundConfig := append([]*core.OutboundHandlerConfig{}, defaultoutbound)
 	block, _ := buildBlockOutbound()
 	coreOutboundConfig = append(coreOutboundConfig, block)

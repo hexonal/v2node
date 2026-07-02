@@ -87,8 +87,10 @@ func (vc *V2Core) GetUserTrafficSlice(tag string, mintraffic int) ([]panel.UserT
 			up := traffic.UpCounter.Load()
 			down := traffic.DownCounter.Load()
 			if up+down > int64(mintraffic*1000) {
-				traffic.UpCounter.Store(0)
-				traffic.DownCounter.Store(0)
+				// Swap-to-zero so any bytes Added between the Load above and this
+				// reset are captured in the reported value instead of being lost.
+				up = traffic.UpCounter.Swap(0)
+				down = traffic.DownCounter.Swap(0)
 				if vc.users.uidMap[email] == 0 {
 					c.Delete(email)
 					return true
@@ -107,6 +109,38 @@ func (vc *V2Core) GetUserTrafficSlice(tag string, mintraffic int) ([]panel.UserT
 		return trafficSlice, nil
 	}
 	return nil, nil
+}
+
+// RollbackUserTraffic adds previously-collected traffic back to the live
+// counters after a failed report, so the next push_interval re-sends it
+// instead of losing it (GetUserTrafficSlice already Swap(0)'d the counters).
+// atomic Add is safe against the data path concurrently adding fresh bytes —
+// both accumulate and are reported next round.
+func (vc *V2Core) RollbackUserTraffic(tag string, traffic []panel.UserTraffic) {
+	if len(traffic) == 0 {
+		return
+	}
+	byUID := make(map[int][2]int64, len(traffic))
+	for i := range traffic {
+		byUID[traffic[i].UID] = [2]int64{traffic[i].Upload, traffic[i].Download}
+	}
+	vc.users.mapLock.RLock()
+	defer vc.users.mapLock.RUnlock()
+	v, ok := vc.dispatcher.Counter.Load(tag)
+	if !ok {
+		return
+	}
+	c := v.(*counter.TrafficCounter)
+	c.Counters.Range(func(key, value interface{}) bool {
+		email := key.(string)
+		uid := vc.users.uidMap[email]
+		if ud, ok := byUID[uid]; ok {
+			s := value.(*counter.TrafficStorage)
+			s.UpCounter.Add(ud[0])
+			s.DownCounter.Add(ud[1])
+		}
+		return true
+	})
 }
 
 func (v *V2Core) AddUsers(p *AddUsersParams) (added int, err error) {

@@ -199,11 +199,13 @@ func (d *DefaultDispatcher) getLink(ctx context.Context) (*transport.Link, *tran
 			outboundLink.Writer = rate.NewRateLimitWriter(outboundLink.Writer, w)
 		}
 		var t *counter.TrafficCounter
-		if c, ok := d.Counter.Load(sessionInbound.Tag); !ok {
-			t = counter.NewTrafficCounter()
-			d.Counter.Store(sessionInbound.Tag, t)
-		} else {
+		if c, ok := d.Counter.Load(sessionInbound.Tag); ok {
 			t = c.(*counter.TrafficCounter)
+		} else {
+			t = counter.NewTrafficCounter()
+			if actual, loaded := d.Counter.LoadOrStore(sessionInbound.Tag, t); loaded {
+				t = actual.(*counter.TrafficCounter)
+			}
 		}
 
 		ts := t.GetCounter(user.Email)
@@ -367,11 +369,13 @@ func (d *DefaultDispatcher) DispatchLink(ctx context.Context, destination net.De
 			outbound.Writer = rate.NewRateLimitWriter(outbound.Writer, w)
 		}
 		var t *counter.TrafficCounter
-		if c, ok := d.Counter.Load(sessionInbound.Tag); !ok {
-			t = counter.NewTrafficCounter()
-			d.Counter.Store(sessionInbound.Tag, t)
-		} else {
+		if c, ok := d.Counter.Load(sessionInbound.Tag); ok {
 			t = c.(*counter.TrafficCounter)
+		} else {
+			t = counter.NewTrafficCounter()
+			if actual, loaded := d.Counter.LoadOrStore(sessionInbound.Tag, t); loaded {
+				t = actual.(*counter.TrafficCounter)
+			}
 		}
 
 		ts := t.GetCounter(user.Email)

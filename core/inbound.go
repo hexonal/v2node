@@ -13,6 +13,7 @@ import (
 	"time"
 
 	panel "github.com/wyx2685/v2node/api/v2board"
+	vconf "github.com/wyx2685/v2node/conf"
 	"github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/inbound"
@@ -48,7 +49,10 @@ func (v *V2Core) addInbound(config *core.InboundHandlerConfig) error {
 }
 
 // BuildInbound build Inbound config for different protocol
-func buildInbound(nodeInfo *panel.NodeInfo, tag string, inboundTFO bool) (*core.InboundHandlerConfig, error) {
+func buildInbound(nodeInfo *panel.NodeInfo, tag string, nodeCfg *vconf.NodeConfig) (*core.InboundHandlerConfig, error) {
+	if nodeCfg == nil {
+		nodeCfg = &vconf.NodeConfig{}
+	}
 	in := &coreConf.InboundDetourConfig{}
 	var err error
 	switch nodeInfo.Type {
@@ -106,12 +110,18 @@ func buildInbound(nodeInfo *panel.NodeInfo, tag string, inboundTFO bool) (*core.
 	// Set Listen IP address
 	ipAddress := net.ParseAddress(nodeInfo.Common.ListenIP)
 	in.ListenOn = &coreConf.Address{Address: ipAddress}
-	// Set SniffingConfig
-	sniffingConfig := &coreConf.SniffingConfig{
-		Enabled:      true,
-		DestOverride: coreConf.StringList{"http", "tls", "quic"},
+	// Set SniffingConfig (per-node configurable; nil Sniffing keeps the old
+	// hardcoded default of enabled + http/tls/quic). Enabled=false leaves
+	// in.SniffingConfig nil so xray does no sniffing at all.
+	sn := nodeCfg.Sniffing
+	if sn.ResolvedEnabled() {
+		in.SniffingConfig = &coreConf.SniffingConfig{
+			Enabled:      true,
+			DestOverride: coreConf.StringList(sn.ResolvedDestOverride()),
+			MetadataOnly: sn.ResolvedMetadataOnly(),
+			RouteOnly:    sn.ResolvedRouteOnly(),
+		}
 	}
-	in.SniffingConfig = sniffingConfig
 
 	// Set TLS or Reality settings
 	switch nodeInfo.Security {
@@ -184,14 +194,29 @@ func buildInbound(nodeInfo *panel.NodeInfo, tag string, inboundTFO bool) (*core.
 	// off — kept configurable since a different host/kernel may support it.
 	// Client-side TCP_FASTOPEN_CONNECT in outbound.go is unaffected and
 	// confirmed working regardless of this setting.
-	if inboundTFO {
+	inboundTFO := nodeCfg.InboundTFO
+	sock := nodeCfg.Sockopt
+	if inboundTFO || sock.HasAny() {
 		if in.StreamSetting == nil {
 			in.StreamSetting = &coreConf.StreamConfig{}
 		}
 		if in.StreamSetting.SocketSettings == nil {
 			in.StreamSetting.SocketSettings = &coreConf.SocketConfig{}
 		}
-		in.StreamSetting.SocketSettings.TFO = true
+		ss := in.StreamSetting.SocketSettings
+		if inboundTFO {
+			ss.TFO = true
+		}
+		// Only touch these fields when the operator set any sockopt, so the
+		// no-config path attaches nothing extra and reuses whatever
+		// SocketSettings AcceptProxyProtocol may have created above.
+		if sock.HasAny() {
+			ss.TCPKeepAliveIdle = sock.ResolvedKeepAliveIdle()
+			ss.TCPKeepAliveInterval = sock.ResolvedKeepAliveInterval()
+			ss.TCPUserTimeout = sock.ResolvedUserTimeout()
+			ss.TCPCongestion = sock.ResolvedCongestion()
+			ss.TcpMptcp = sock.ResolvedMptcp()
+		}
 	}
 	in.Tag = tag
 	return in.Build()

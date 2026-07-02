@@ -4,10 +4,11 @@ import (
 	"fmt"
 
 	panel "github.com/wyx2685/v2node/api/v2board"
+	vconf "github.com/wyx2685/v2node/conf"
 )
 
-func (v *V2Core) AddNode(tag string, info *panel.NodeInfo, inboundTFO bool) error {
-	inBoundConfig, err := buildInbound(info, tag, inboundTFO)
+func (v *V2Core) AddNode(tag string, info *panel.NodeInfo, nodeCfg *vconf.NodeConfig) error {
+	inBoundConfig, err := buildInbound(info, tag, nodeCfg)
 	if err != nil {
 		return fmt.Errorf("build inbound error: %s", err)
 	}
