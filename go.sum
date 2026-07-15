@@ -524,8 +524,8 @@ github.com/hashicorp/memberlist v0.1.3/go.mod h1:ajVTdAv/9Im8oMAAj5G31PhhMCZJV2p
 github.com/hashicorp/memberlist v0.2.2/go.mod h1:MS2lj3INKhZjWNqd3N0m3J+Jxf3DAOnAH9VT3Sh9MUE=
 github.com/hashicorp/serf v0.8.2/go.mod h1:6hOLApaqBFA1NXqRQAsxw9QxuDEvNxSQRwA/JwenrHc=
 github.com/hashicorp/serf v0.9.5/go.mod h1:UWDWwZeL5cuWDJdl0C6wrvrUwEqtQ4ZKBKKENpqIUyk=
-github.com/hexonal/Xray-core v1.260627.1 h1:9pN7ujgiAZsbR+uX8qQp0ytRTj1szgt7rt6SRvFzSfY=
-github.com/hexonal/Xray-core v1.260627.1/go.mod h1:Atc7C035dk9SwlEQJfVSOM7aLJvP8ZMSZE3mSNAJEUI=
+github.com/hexonal/Xray-core v1.260711.1 h1:t/wQ+bH/lsLSF3FY0xERdQs9pucPdsEdXR9BvmxAnUI=
+github.com/hexonal/Xray-core v1.260711.1/go.mod h1:Nu0Nt6/WWUu5i0YDf1xBBGgwqBkJxCbEyfzBL0j5MaE=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=
 github.com/huaweicloud/huaweicloud-sdk-go-v3 v0.1.159 h1:6LZysc4iyO4cHB1aJsRklWfSEJr8CEhW7BmcM0SkYcU=
 github.com/huaweicloud/huaweicloud-sdk-go-v3 v0.1.159/go.mod h1:Y/+YLCFCJtS29i2MbYPTUlNNfwXvkzEsZKR0imY/2aY=
