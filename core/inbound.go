@@ -205,25 +205,21 @@ func buildInbound(nodeInfo *panel.NodeInfo, tag string, nodeCfg *vconf.NodeConfi
 	// (no mainstream client ships support yet as of 2026-07) and it must
 	// not be possible to flip on with a single fat-fingered panel edit.
 	//
-	// CRITICAL: REALITY is hard-excluded, not just untested. Confirmed via a
-	// live local repro (vless+reality+finalmask.tcp:xmc) that the xray-core
-	// server side PANICS the whole process on the first connection:
-	// "interface conversion: *xmc.serverConn is not reality.CloseWriteConn:
-	// missing method CloseWrite" (transport/internet/reality's Server() hard
-	// type-asserts the wrapped conn). xmc.serverConn has no CloseWrite()
-	// method, so this is not a config mistake — it's an upstream xray-core
-	// bug in transport/internet/reality/tls.go:186, not something we can
-	// route around from v2node's side. XMC + plain TLS was verified to work
-	// correctly in the same local repro (real HTTP 200 through the tunnel),
-	// so this guard is scoped to REALITY specifically, not FinalMask+TLS in
-	// general. 100% of our production nodes run REALITY, so until this is
-	// fixed upstream (or patched in our own xray-core fork), finalmask_tcp
-	// is unusable on any node that also sets security=reality — refuse
-	// loudly here instead of letting a live listener panic on first use.
+	// History: an earlier version of this block hard-rejected
+	// security=reality here, because a live local repro
+	// (vless+reality+finalmask.tcp:xmc) panicked the whole xray-core process
+	// on the first connection ("interface conversion: *xmc.serverConn is not
+	// reality.CloseWriteConn: missing method CloseWrite" — REALITY's server
+	// side hard type-asserts the wrapped conn for its splice-to-real-website
+	// fallback path). Root-caused and fixed upstream in our own xray-core
+	// fork (hexonal/Xray-core, tag v1.260711.2): added CloseWrite() to
+	// xmc.serverConn, forwarding to the underlying raw conn — safe because
+	// half-close is a socket-level operation below XMC's byte-stream cipher.
+	// Re-verified with the same local repro post-fix: REALITY handshake
+	// completes for real (isHandshakeComplete=true), VLESS+Vision proxies
+	// correctly to the actual requested destination (not REALITY's disguise
+	// fallback), no panic. The REALITY-specific guard is no longer needed.
 	if nodeCfg.AllowFinalMaskTcp && nodeInfo.Common.FinalMaskTcp == "xmc" {
-		if nodeInfo.Security == panel.Reality {
-			return nil, fmt.Errorf("node %d: finalmask_tcp=xmc cannot be combined with security=reality — xray-core panics on the first connection (missing CloseWrite on xmc.serverConn); use plain tls or no security for this node instead", nodeInfo.Id)
-		}
 		switch nodeInfo.Type {
 		case "vless", "vmess", "trojan", "anytls":
 			if nodeInfo.Common.Network != "tcp" {
