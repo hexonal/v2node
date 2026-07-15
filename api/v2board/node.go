@@ -52,6 +52,11 @@ type CommonNode struct {
 	EncryptionSettings   EncSettings     `json:"encryption_settings"`
 	ServerName           string          `json:"server_name"`
 	Flow                 string          `json:"flow"`
+	// FinalMaskTcp is the TCP-layer finalmask type ("xmc" is the only value
+	// currently wired end-to-end). Empty/absent = no finalmask attached,
+	// i.e. today's behavior, unchanged.
+	FinalMaskTcp         string      `json:"finalmask_tcp"`
+	FinalMaskTcpSettings XmcSettings `json:"finalmask_tcp_settings"`
 	//shadowsocks
 	Cipher    string `json:"cipher"`
 	ServerKey string `json:"server_key"`
@@ -154,6 +159,15 @@ type EncSettings struct {
 	Ticket        string `json:"ticket"`
 	ServerPadding string `json:"server_padding"`
 	PrivateKey    string `json:"private_key"`
+}
+
+// XmcSettings mirrors xtls/xray-core/infra/conf.XMC{Hostname, Usernames,
+// Password} field-for-field so it can be json.Marshal'd straight into the
+// finalmask.tcp[].settings blob Xray-core expects.
+type XmcSettings struct {
+	Hostname  string   `json:"hostname"`
+	Usernames []string `json:"usernames"`
+	Password  string   `json:"password"`
 }
 
 // localRoutesChanged reports whether c.LocalRoutesPath's mtime differs from

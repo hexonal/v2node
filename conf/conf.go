@@ -115,6 +115,13 @@ type NodeConfig struct {
 	// Sockopt attaches extra TCP socket options to this node's inbound
 	// listener. nil / all-unset attaches nothing (previous behavior).
 	Sockopt *SockoptConfig `mapstructure:"Sockopt"`
+	// AllowFinalMaskTcp is a node-local safety gate for the panel-configured
+	// finalmask_tcp field. Defaults to false: even if a panel admin sets
+	// finalmask_tcp=xmc for this node, v2node ignores it until the local
+	// config.json explicitly opts in. Two independent confirmations (panel
+	// field + local flag) before a brand-new, ecosystem-unproven transport
+	// can change a production listener's wire protocol.
+	AllowFinalMaskTcp bool `mapstructure:"AllowFinalMaskTcp"`
 }
 
 func New() *Conf {

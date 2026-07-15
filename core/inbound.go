@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	panel "github.com/wyx2685/v2node/api/v2board"
 	vconf "github.com/wyx2685/v2node/conf"
 	"github.com/xtls/xray-core/common/net"
@@ -195,6 +196,50 @@ func buildInbound(nodeInfo *panel.NodeInfo, tag string, nodeCfg *vconf.NodeConfi
 		}
 	default:
 		break
+	}
+	// Wire XMC (finalmask.tcp) — a TCP-only mask that wraps the raw listener
+	// before TLS/REALITY negotiate, so it composes with REALITY/TLS rather
+	// than replacing them (upstream's own stated intent: the RSA-1024+CFB8
+	// crypto here is "SS-level", meant to sit underneath real TLS/REALITY,
+	// not stand in for it). Two independent opt-in gates before it ever
+	// touches a live listener: the panel must set finalmask_tcp=xmc AND this
+	// node's local config.json must set AllowFinalMaskTcp=true. Neither
+	// alone is enough — this is a brand-new, ecosystem-unproven transport
+	// (no mainstream client ships support yet as of 2026-07) and it must
+	// not be possible to flip on with a single fat-fingered panel edit.
+	if nodeCfg.AllowFinalMaskTcp && nodeInfo.Common.FinalMaskTcp == "xmc" {
+		switch nodeInfo.Type {
+		case "vless", "vmess", "trojan", "anytls":
+			if nodeInfo.Common.Network != "tcp" {
+				log.Warnf("node %d: finalmask_tcp=xmc requires network=tcp, got %q; ignoring", nodeInfo.Id, nodeInfo.Common.Network)
+				break
+			}
+			xs := nodeInfo.Common.FinalMaskTcpSettings
+			if xs.Password == "" {
+				// xray-core's XMC.Build() hard-errors on an empty password
+				// anyway; fail the whole inbound build loudly here instead
+				// of letting it fail deeper with a less obvious message.
+				return nil, fmt.Errorf("node %d: finalmask_tcp=xmc requires a non-empty password", nodeInfo.Id)
+			}
+			raw, err := json.Marshal(xs)
+			if err != nil {
+				return nil, fmt.Errorf("marshal xmc settings error: %s", err)
+			}
+			rawMsg := json.RawMessage(raw)
+			if in.StreamSetting == nil {
+				t := coreConf.TransportProtocol("tcp")
+				in.StreamSetting = &coreConf.StreamConfig{Network: &t}
+			}
+			if in.StreamSetting.FinalMask == nil {
+				in.StreamSetting.FinalMask = &coreConf.FinalMask{}
+			}
+			in.StreamSetting.FinalMask.Tcp = append(in.StreamSetting.FinalMask.Tcp, coreConf.Mask{
+				Type:     "xmc",
+				Settings: &rawMsg,
+			})
+		default:
+			log.Warnf("node %d: finalmask_tcp=xmc is only wired for vless/vmess/trojan/anytls over tcp; protocol=%s ignored", nodeInfo.Id, nodeInfo.Type)
+		}
 	}
 	// Server-side TCP_FASTOPEN is opt-in per node via inboundTFO (default
 	// false). On the currently deployed nodes' kernel, setsockopt(
