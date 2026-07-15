@@ -99,6 +99,17 @@ func buildInbound(nodeInfo *panel.NodeInfo, tag string, nodeCfg *vconf.NodeConfi
 			}
 		}
 	}
+	// Set socket settings for trusted X-Forwarded-For headers
+	if len(nodeInfo.Common.TrustedXForwardedFor) > 0 {
+		if in.StreamSetting == nil {
+			return nil, errors.New("stream settings must be configured to set trusted X-Forwarded-For headers")
+		}
+		if in.StreamSetting.SocketSettings == nil {
+			in.StreamSetting.SocketSettings = &coreConf.SocketConfig{}
+		}
+		in.StreamSetting.SocketSettings.TrustedXForwardedFor = nodeInfo.Common.TrustedXForwardedFor
+	}
+
 	// Set server port
 	in.PortList = &coreConf.PortList{
 		Range: []coreConf.PortRange{
@@ -173,13 +184,14 @@ func buildInbound(nodeInfo *panel.NodeInfo, tag string, nodeCfg *vconf.NodeConfi
 			return nil, fmt.Errorf("marshal reality dest error: %s", err)
 		}
 		in.StreamSetting.REALITYSettings = &coreConf.REALITYConfig{
-			Dest:        d,
-			Xver:        xver,
-			Show:        false,
-			ServerNames: serverNames,
-			PrivateKey:  v.TlsSettings.PrivateKey,
-			ShortIds:    shortIds,
-			Mldsa65Seed: v.TlsSettings.Mldsa65Seed,
+			Dest:         d,
+			Xver:         xver,
+			Show:         false,
+			ServerNames:  serverNames,
+			PrivateKey:   v.TlsSettings.PrivateKey,
+			MinClientVer: "0.0.1",
+			ShortIds:     shortIds,
+			Mldsa65Seed:  v.TlsSettings.Mldsa65Seed,
 		}
 	default:
 		break
