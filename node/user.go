@@ -23,6 +23,10 @@ func (c *Controller) reportUserTrafficTask(ctx context.Context) (err error) {
 				"tag": c.tag,
 				"err": err,
 			}).Info("Report user traffic failed")
+			// GetUserTrafficSlice already zeroed the live counters for this
+			// traffic; a failed report would otherwise lose it permanently.
+			// Add it back so the next push_interval re-sends it instead.
+			c.server.RollbackUserTraffic(c.tag, userTraffic)
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}

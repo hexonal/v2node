@@ -290,8 +290,26 @@ func (c *Client) GetNodeInfo(ctx context.Context) (node *NodeInfo, err error) {
 	}
 
 	// set interval
-	node.PushInterval = intervalToTime(cm.BaseConfig.PushInterval)
-	node.PullInterval = intervalToTime(cm.BaseConfig.PullInterval)
+	//
+	// Guarded against two real failure modes found in a 2026-07-15 audit:
+	// (1) cm.BaseConfig can be nil if the panel response omits base_config
+	// (or a bug returns it empty) — dereferencing it here would panic every
+	// poll cycle. (2) a panel-supplied 0 (or a bug returning it) drives the
+	// poll loop into a tight spin, forcing a full xray-core config reload
+	// (dropping every active connection) on each iteration; floor both
+	// intervals at minPollInterval so a bad panel response degrades to
+	// "polls a bit too often" instead of "reloads constantly."
+	const minPollInterval = 5 * time.Second
+	if cm.BaseConfig != nil {
+		node.PushInterval = intervalToTime(cm.BaseConfig.PushInterval)
+		node.PullInterval = intervalToTime(cm.BaseConfig.PullInterval)
+	}
+	if node.PushInterval < minPollInterval {
+		node.PushInterval = minPollInterval
+	}
+	if node.PullInterval < minPollInterval {
+		node.PullInterval = minPollInterval
+	}
 
 	node.Common = cm
 
