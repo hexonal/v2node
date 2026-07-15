@@ -219,6 +219,17 @@ func buildInbound(nodeInfo *panel.NodeInfo, tag string, nodeCfg *vconf.NodeConfi
 	// completes for real (isHandshakeComplete=true), VLESS+Vision proxies
 	// correctly to the actual requested destination (not REALITY's disguise
 	// fallback), no panic. The REALITY-specific guard is no longer needed.
+	//
+	// Upstream position (our PR XTLS/Xray-core#6497 fixing this exact crash
+	// was closed by the maintainers, quoting RPRX: REALITY should not be
+	// combined with any TCP Finalmask at all — pointless, since REALITY's
+	// own TLS mimicry already covers what Finalmask would add; cert-free
+	// strong encryption should use VLESS Encryption (mlkem768x25519plus)
+	// instead). So this code path is intentionally "won't crash if someone
+	// configures it anyway", not something we should actively recommend or
+	// enable in production — the two-gate design above already keeps it
+	// off by default; don't build UI/docs steering operators toward turning
+	// it on for a REALITY node.
 	if nodeCfg.AllowFinalMaskTcp && nodeInfo.Common.FinalMaskTcp == "xmc" {
 		switch nodeInfo.Type {
 		case "vless", "vmess", "trojan", "anytls":
