@@ -238,6 +238,6 @@ require (
 	lukechampine.com/blake3 v1.4.1 // indirect
 )
 
-replace github.com/xtls/xray-core => github.com/hexonal/Xray-core v1.260711.5
+replace github.com/xtls/xray-core => github.com/hexonal/Xray-core v1.260711.9
 
-replace github.com/xtls/reality => github.com/hexonal/REALITY v0.0.0-fix1
+replace github.com/xtls/reality => github.com/hexonal/REALITY v0.0.0-fix2

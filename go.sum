@@ -524,10 +524,10 @@ github.com/hashicorp/memberlist v0.1.3/go.mod h1:ajVTdAv/9Im8oMAAj5G31PhhMCZJV2p
 github.com/hashicorp/memberlist v0.2.2/go.mod h1:MS2lj3INKhZjWNqd3N0m3J+Jxf3DAOnAH9VT3Sh9MUE=
 github.com/hashicorp/serf v0.8.2/go.mod h1:6hOLApaqBFA1NXqRQAsxw9QxuDEvNxSQRwA/JwenrHc=
 github.com/hashicorp/serf v0.9.5/go.mod h1:UWDWwZeL5cuWDJdl0C6wrvrUwEqtQ4ZKBKKENpqIUyk=
-github.com/hexonal/REALITY v0.0.0-fix1 h1:mfeVr6wIcqx4xHHdZ8A8tBsEvE4cLuHrqf9zBENIDmY=
-github.com/hexonal/REALITY v0.0.0-fix1/go.mod h1:DsJblcWDGt76+FVqBVwbwRhxyyNJsGV48gJLch0OOWI=
-github.com/hexonal/Xray-core v1.260711.5 h1:p4/hERaWM6lWn3mVgnbem26QhZigc2b0V+Smw046H0c=
-github.com/hexonal/Xray-core v1.260711.5/go.mod h1:yytPuXhwC/YbsJcB6ra4Dq4erolviy5rSp5D+ceAmBI=
+github.com/hexonal/REALITY v0.0.0-fix2 h1:h1oDaJ7J9QXGxLPJoYguBMgwnAbUmBakjaDI4AVd2YY=
+github.com/hexonal/REALITY v0.0.0-fix2/go.mod h1:DsJblcWDGt76+FVqBVwbwRhxyyNJsGV48gJLch0OOWI=
+github.com/hexonal/Xray-core v1.260711.9 h1:8YC9Bi2ScRWABSfl/9s7FfrQKo1BE1rtUFuYWJxtFlg=
+github.com/hexonal/Xray-core v1.260711.9/go.mod h1:FITMEhX3y5lLnaX/92U61Hk93t4hLORkmJLbtYsSddA=
 github.com/hpcloud/tail v1.0.0/go.mod h1:ab1qPbhIpdTxEkNHXyeSf5vhxWSCs/tWer42PpOxQnU=
 github.com/huaweicloud/huaweicloud-sdk-go-v3 v0.1.159 h1:6LZysc4iyO4cHB1aJsRklWfSEJr8CEhW7BmcM0SkYcU=
 github.com/huaweicloud/huaweicloud-sdk-go-v3 v0.1.159/go.mod h1:Y/+YLCFCJtS29i2MbYPTUlNNfwXvkzEsZKR0imY/2aY=
