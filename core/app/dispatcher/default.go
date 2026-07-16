@@ -194,6 +194,13 @@ func (d *DefaultDispatcher) getLink(ctx context.Context) (*transport.Link, *tran
 		managedWriter := registerManagedLink(&d.LinkManagers, user.Email, uplinkWriter, outboundLink.Reader)
 		inboundLink.Writer = managedWriter
 		if w != nil {
+			// CanSpliceCopy=3 permanently disables xray-core's kernel splice
+			// fast path for this connection's whole lifetime (a rate-limited
+			// stream can't be metered token-bucket-by-token-bucket by a
+			// kernel-space splice() copy) - logged once here since this used
+			// to be a silent trade-off with no signal explaining a rate-limited
+			// user's throughput/CPU looking different from an unlimited one.
+			errors.LogInfo(ctx, "speed limit active for ", user.Email, ", disabling kernel splice for this connection")
 			sessionInbound.CanSpliceCopy = 3
 			inboundLink.Writer = rate.NewRateLimitWriter(inboundLink.Writer, w)
 			outboundLink.Writer = rate.NewRateLimitWriter(outboundLink.Writer, w)
@@ -365,6 +372,10 @@ func (d *DefaultDispatcher) DispatchLink(ctx context.Context, destination net.De
 		managedWriter := registerManagedLink(&d.LinkManagers, user.Email, outbound.Writer, outbound.Reader)
 		outbound.Writer = managedWriter
 		if w != nil {
+			// See the matching comment in getLink - CanSpliceCopy=3 here is a
+			// permanent, silent (until this log line) splice fast-path opt-out
+			// for the connection's whole lifetime.
+			errors.LogInfo(ctx, "speed limit active for ", user.Email, ", disabling kernel splice for this connection")
 			sessionInbound.CanSpliceCopy = 3
 			outbound.Writer = rate.NewRateLimitWriter(outbound.Writer, w)
 		}

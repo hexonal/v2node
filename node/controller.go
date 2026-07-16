@@ -59,9 +59,16 @@ func (c *Controller) Start(x *core.V2Core) error {
 	if len(c.userList) == 0 {
 		return errors.New("add users error: not have any user")
 	}
+	// Non-fatal: GetUserAlive now surfaces real errors (network/HTTP/decode
+	// failures) instead of silently faking an empty-map success, so a
+	// transient panel hiccup here must not abort this whole node's startup -
+	// this process hasn't accepted a single connection yet at this point, so
+	// falling back to an empty aliveMap is exactly accurate anyway; the next
+	// successful nodeInfoMonitor poll will populate the real state.
 	c.aliveMap, err = c.apiClient.GetUserAlive(context.Background())
 	if err != nil {
-		return fmt.Errorf("failed to get user alive list: %s", err)
+		log.WithFields(log.Fields{"tag": node.Tag, "err": err}).Warn("get user alive list failed at startup, continuing with an empty list")
+		c.aliveMap = make(map[int]int)
 	}
 	c.tag = node.Tag
 

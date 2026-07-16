@@ -74,7 +74,10 @@ func (c *Controller) requestCert() error {
 }
 
 func generateSelfSslCertificate(domain, certPath, keyPath string) error {
-	key, _ := rsa.GenerateKey(rand.Reader, 2048)
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return fmt.Errorf("generate rsa key error: %s", err)
+	}
 	tmpl := &x509.Certificate{
 		Version:      3,
 		SerialNumber: big.NewInt(time.Now().Unix()),
@@ -108,7 +111,12 @@ func generateSelfSslCertificate(domain, certPath, keyPath string) error {
 		return err
 	}
 	err = pem.Encode(f, &pem.Block{
-		Type:  "EC PRIVATE KEY",
+		// key is an RSA key encoded via MarshalPKCS1PrivateKey - the PEM
+		// block type must say so. Go's own tls.X509KeyPair loader ignores
+		// this field so xray-core's cert loading path never actually broke,
+		// but any tool that trusts the label (openssl, other clients) would
+		// have parsed this as garbage.
+		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(key),
 	})
 	if err != nil {

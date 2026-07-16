@@ -105,3 +105,75 @@ func TestLimiterConcurrentNoRace(t *testing.T) {
 	close(stop)
 	wg.Wait()
 }
+
+// TestUserLimitInfoConcurrentNoRace exercises a second, distinct race not
+// covered by the test above: UserLimitInfo is shared by pointer through
+// UserLimitInfo (the sync.Map), and its SpeedLimit/DeviceLimit fields
+// (mutated by UpdateUser's modified-list loop) and DynamicSpeedLimit/
+// ExpireTime fields (mutated by both CheckLimit's own expiry branch and by
+// UpdateDynamicSpeedLimit) used to be read/written with no synchronization
+// at all, while CheckLimit runs concurrently on every new connection.
+// Must run clean under `-race` after UserLimitInfo.mu was added.
+func TestUserLimitInfoConcurrentNoRace(t *testing.T) {
+	Init()
+	tag := "tag2"
+	users := []panel.UserInfo{
+		{Id: 1, Uuid: "33333333-3333-3333-3333-333333333333", SpeedLimit: 100, DeviceLimit: 5},
+	}
+	alive := map[int]int{1: 1}
+	l := AddLimiter("vless", tag, users, alive)
+	tu := format.UserTag(tag, users[0].Uuid)
+
+	// Force the expiry branch in CheckLimit to actually execute every call.
+	_ = l.UpdateDynamicSpeedLimit(tag, users[0].Uuid, 50, time.Now().Add(-time.Hour))
+
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			ip := "10.1.0." + strconv.Itoa(i)
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					l.CheckLimit(tu, ip, true)
+				}
+			}
+		}(i)
+	}
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		mod := []panel.UserInfo{{Id: 1, Uuid: users[0].Uuid, SpeedLimit: 200, DeviceLimit: 5}}
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				l.UpdateUser(tag, nil, nil, mod)
+			}
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				_ = l.UpdateDynamicSpeedLimit(tag, users[0].Uuid, 50, time.Now().Add(-time.Hour))
+			}
+		}
+	}()
+
+	time.Sleep(300 * time.Millisecond)
+	close(stop)
+	wg.Wait()
+}

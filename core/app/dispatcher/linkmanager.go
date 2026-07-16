@@ -80,6 +80,23 @@ func registerManagedLink(lms *sync.Map, email string, writer buf.Writer, reader 
 	}
 }
 
+// CloseAll force-disconnects every tracked link (used by DelUsers to kick a
+// banned/expired/device-limit-exceeded user's already-open connections, not
+// just block future ones). This depends on w.writer actually implementing
+// Closable all the way down to the real net.Conn: registerManagedLink
+// captures the *pre-wrap* writer/reader (before rate-limit/counter
+// wrapping - see default.go's DispatchLink), so for VLESS+Vision this is a
+// bare *proxy.VisionWriter. Upstream xray-core's VisionWriter/VisionReader
+// used to embed the buf.Writer/buf.Reader *interface* only, so they had no
+// Close() and common.Close/common.Interrupt here were silent no-ops - an
+// already-open Vision connection for a kicked user kept proxying until
+// natural disconnect or the xray ConnectionIdle timeout (which never fires
+// while traffic keeps flowing). Fixed in our Xray-core fork by giving
+// VisionWriter/VisionReader a Close() that closes the real conn they already
+// hold a reference to (hexonal/Xray-core, proxy/proxy.go) - closing either
+// side tears down the shared underlying connection, so CloseAll's
+// writer-side common.Close() alone is enough even though the reader-side
+// common.Interrupt() still can't reach past the CounterReader wrapper below.
 func (m *LinkManager) CloseAll() {
 	m.mu.Lock()
 	if m.closed {

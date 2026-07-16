@@ -31,12 +31,23 @@ type Limiter struct {
 }
 
 type UserLimitInfo struct {
-	UID               int
-	SpeedLimit        int
-	DeviceLimit       int
+	UID         int
+	SpeedLimit  int
+	DeviceLimit int
+	OverLimit   bool
+
+	// mu guards DynamicSpeedLimit/ExpireTime below (and SpeedLimit/DeviceLimit
+	// during UpdateUser). UserLimitInfo is shared by pointer through a
+	// sync.Map and mutated from at least three places without any
+	// synchronization before this fix: UpdateUser's modified-list loop
+	// (panel poll cycle), CheckLimit's own expiry branch (every new
+	// connection, many goroutines concurrently), and
+	// UpdateDynamicSpeedLimit. That's a genuine, reachable data race
+	// (`go test -race` flags it) distinct from the AliveList/OldUserOnline
+	// race already covered by limiter_race_test.go.
+	mu                sync.Mutex
 	DynamicSpeedLimit int
 	ExpireTime        int64
-	OverLimit         bool
 }
 
 func AddLimiter(nodetype string, tag string, users []panel.UserInfo, aliveList map[int]int) *Limiter {
@@ -110,8 +121,10 @@ func (l *Limiter) UpdateUser(tag string, added []panel.UserInfo, deleted []panel
 	for i := range modified {
 		if v, ok := l.UserLimitInfo.Load(format.UserTag(tag, modified[i].Uuid)); ok {
 			u := v.(*UserLimitInfo)
+			u.mu.Lock()
 			u.SpeedLimit = modified[i].SpeedLimit
 			u.DeviceLimit = modified[i].DeviceLimit
+			u.mu.Unlock()
 			l.UserLimitInfo.Store(format.UserTag(tag, modified[i].Uuid), u)
 		}
 		limit := int64(determineSpeedLimit(l.SpeedLimit, modified[i].SpeedLimit)) * 1000000 / 8
@@ -149,8 +162,10 @@ func (l *Limiter) UpdateUser(tag string, added []panel.UserInfo, deleted []panel
 func (l *Limiter) UpdateDynamicSpeedLimit(tag, uuid string, limit int, expire time.Time) error {
 	if v, ok := l.UserLimitInfo.Load(format.UserTag(tag, uuid)); ok {
 		info := v.(*UserLimitInfo)
+		info.mu.Lock()
 		info.DynamicSpeedLimit = limit
 		info.ExpireTime = expire.Unix()
+		info.mu.Unlock()
 	} else {
 		return errors.New("not found")
 	}
@@ -168,6 +183,7 @@ func (l *Limiter) CheckLimit(taguuid string, ip string, noUDPsource bool) (Dynam
 	var uid int
 	if v, ok := l.UserLimitInfo.Load(taguuid); ok {
 		u := v.(*UserLimitInfo)
+		u.mu.Lock()
 		deviceLimit = u.DeviceLimit
 		uid = u.UID
 		if u.ExpireTime < time.Now().Unix() && u.ExpireTime != 0 {
@@ -175,11 +191,14 @@ func (l *Limiter) CheckLimit(taguuid string, ip string, noUDPsource bool) (Dynam
 				userLimit = u.SpeedLimit
 				u.DynamicSpeedLimit = 0
 				u.ExpireTime = 0
+				u.mu.Unlock()
 			} else {
+				u.mu.Unlock()
 				l.UserLimitInfo.Delete(taguuid)
 			}
 		} else {
 			userLimit = determineSpeedLimit(u.SpeedLimit, u.DynamicSpeedLimit)
+			u.mu.Unlock()
 		}
 	} else {
 		return nil, true

@@ -2,7 +2,6 @@ package panel
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -93,6 +92,17 @@ func (c *Client) GetUserList(ctx context.Context) ([]UserInfo, error) {
 }
 
 // GetUserAlive will fetch the alive_ip count for users
+//
+// Used to convert every failure mode (network error, HTTP >= 399, JSON
+// decode error) into a fabricated success (empty map, nil error). Callers
+// (node/task.go's nodeInfoMonitor, node/controller.go's Start) already
+// correctly special-case a real error by logging it and skipping the
+// AliveList update for that cycle - but with every failure silently
+// reported as "success: no one is online", they instead always overwrote
+// AliveList with an empty map on every transient panel hiccup (network
+// blip, panel restart, 5xx), which briefly disabled device-limit
+// enforcement for every user on this node instead of leaving the last-known
+// state in place until the next successful poll.
 func (c *Client) GetUserAlive(ctx context.Context) (map[int]int, error) {
 	c.AliveMap = &AliveMap{}
 	const path = "/api/v1/server/UniProxy/alivelist"
@@ -101,19 +111,19 @@ func (c *Client) GetUserAlive(ctx context.Context) (map[int]int, error) {
 		ForceContentType("application/json").
 		Get(path)
 	if err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, err
-		}
-		c.AliveMap.Alive = make(map[int]int)
-		return c.AliveMap.Alive, nil
+		return nil, fmt.Errorf("get user alive list error: %w", err)
 	}
-	if r == nil || r.RawResponse == nil || r.StatusCode() >= 399 {
-		c.AliveMap.Alive = make(map[int]int)
-		return c.AliveMap.Alive, nil
+	if r == nil || r.RawResponse == nil {
+		return nil, fmt.Errorf("get user alive list error: received nil response")
+	}
+	if r.StatusCode() >= 399 {
+		return nil, fmt.Errorf("get user alive list error: unexpected status code %d", r.StatusCode())
 	}
 	defer r.RawResponse.Body.Close()
 	if err := json.Unmarshal(r.Body(), c.AliveMap); err != nil {
-		fmt.Printf("unmarshal user alive list error: %s", err)
+		return nil, fmt.Errorf("unmarshal user alive list error: %w", err)
+	}
+	if c.AliveMap.Alive == nil {
 		c.AliveMap.Alive = make(map[int]int)
 	}
 

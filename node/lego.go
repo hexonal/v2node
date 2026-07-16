@@ -110,10 +110,18 @@ func (l *Lego) RenewCert() error {
 	if err != nil {
 		return fmt.Errorf("read cert file error: %s", err)
 	}
-	if e, err := l.CheckCert(file); !e {
-		return nil
-	} else if err != nil {
+	// CheckCert only ever returns (false, err) on a parse failure, (false,
+	// nil) when the cert is still valid, or (true, nil) when renewal is due -
+	// checking err first (instead of branching on !e first, which took the
+	// "no renewal needed" path on ANY parse failure, silently) so a
+	// corrupted/truncated on-disk cert file surfaces as a real error instead
+	// of permanently and silently disabling renewal.
+	e, err := l.CheckCert(file)
+	if err != nil {
 		return fmt.Errorf("check cert error: %s", err)
+	}
+	if !e {
+		return nil
 	}
 	res, err := l.client.Certificate.Renew(certificate.Resource{
 		Domain:      l.config.CertDomain,
@@ -258,6 +266,14 @@ func (u *User) Save(path string) error {
 
 func (u *User) DecodePrivate(pemEncodedPriv string) (*ecdsa.PrivateKey, error) {
 	blockPriv, _ := pem.Decode([]byte(pemEncodedPriv))
+	// pem.Decode returns a nil block (per its own documented contract) when
+	// no PEM data is found - an empty/garbage KeyEncoded (corrupted lego user
+	// file) used to panic here with a nil pointer dereference, crashing the
+	// whole v2node process, since this is reached both at startup and from
+	// the daily cert-renewal goroutine with no recover anywhere upstream.
+	if blockPriv == nil {
+		return nil, fmt.Errorf("decode private key: no PEM data found")
+	}
 	x509EncodedPriv := blockPriv.Bytes
 	privateKey, err := x509.ParseECPrivateKey(x509EncodedPriv)
 	return privateKey, err

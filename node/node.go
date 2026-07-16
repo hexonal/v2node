@@ -49,13 +49,19 @@ func (n *Node) Start(nodes []conf.NodeConfig, core *core.V2Core) error {
 }
 
 func (n *Node) Close() error {
-	var err error
+	// Used to return on the first controller's Close() error, which skipped
+	// Close() (and its task/ticker shutdown, limiter cleanup, DelNode) for
+	// every controller after it. One controller failing to close must not
+	// leave the rest running against a shutting-down process.
+	var firstErr error
 	for _, c := range n.controllers {
-		if err = c.Close(); err != nil {
+		if err := c.Close(); err != nil {
 			log.Errorf("close controller failed: %v", err)
-			return err
+			if firstErr == nil {
+				firstErr = err
+			}
 		}
 	}
 	n.controllers = nil
-	return nil
+	return firstErr
 }

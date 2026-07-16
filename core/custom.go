@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"strings"
 
@@ -60,11 +61,26 @@ func GetCustomConfig(infos []*panel.NodeInfo, outCfg vconf.OutboundConfig) (*dns
 		QueryStrategy: queryStrategy,
 	}
 	//outbound
-	defaultoutbound, _ := buildDefaultOutbound(outCfg)
+	// Used to discard these errors with `_` - a Build() failure (e.g. an
+	// operator typo in config.json's Outbound.DomainStrategy that xray-core's
+	// own FreedomConfig.Build() validation rejects) left a nil
+	// *core.OutboundHandlerConfig appended into the list, which crashes the
+	// whole process later when xray-core actually instantiates it, far from
+	// this actual root cause.
+	defaultoutbound, err := buildDefaultOutbound(outCfg)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("build default outbound error: %s", err)
+	}
 	coreOutboundConfig := append([]*core.OutboundHandlerConfig{}, defaultoutbound)
-	block, _ := buildBlockOutbound()
+	block, err := buildBlockOutbound()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("build block outbound error: %s", err)
+	}
 	coreOutboundConfig = append(coreOutboundConfig, block)
-	dns, _ := buildDnsOutbound()
+	dns, err := buildDnsOutbound()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("build dns outbound error: %s", err)
+	}
 	coreOutboundConfig = append(coreOutboundConfig, dns)
 
 	//route
@@ -152,6 +168,18 @@ func GetCustomConfig(infos []*panel.NodeInfo, outCfg vconf.OutboundConfig) (*dns
 				if err != nil {
 					continue
 				}
+				// Build the custom outbound (if it doesn't already exist)
+				// BEFORE appending the router rule - used to append the rule
+				// first and only skip appending the *outbound* on a Build()
+				// failure, leaving a router rule pointing at an outboundTag
+				// with no registered handler behind it.
+				if !hasOutboundWithTag(coreOutboundConfig, outbound.Tag) {
+					custom_outbound, err := outbound.Build()
+					if err != nil {
+						continue
+					}
+					coreOutboundConfig = append(coreOutboundConfig, custom_outbound)
+				}
 				rule := map[string]interface{}{
 					"inboundTag":  info.Tag,
 					"domain":      route.Match,
@@ -162,14 +190,6 @@ func GetCustomConfig(infos []*panel.NodeInfo, outCfg vconf.OutboundConfig) (*dns
 					continue
 				}
 				coreRouterConfig.RuleList = append(coreRouterConfig.RuleList, rawRule)
-				if hasOutboundWithTag(coreOutboundConfig, outbound.Tag) {
-					continue
-				}
-				custom_outbound, err := outbound.Build()
-				if err != nil {
-					continue
-				}
-				coreOutboundConfig = append(coreOutboundConfig, custom_outbound)
 			case "route_ip":
 				if route.ActionValue == nil {
 					continue
@@ -178,6 +198,13 @@ func GetCustomConfig(infos []*panel.NodeInfo, outCfg vconf.OutboundConfig) (*dns
 				err := json.Unmarshal([]byte(*route.ActionValue), outbound)
 				if err != nil {
 					continue
+				}
+				if !hasOutboundWithTag(coreOutboundConfig, outbound.Tag) {
+					custom_outbound, err := outbound.Build()
+					if err != nil {
+						continue
+					}
+					coreOutboundConfig = append(coreOutboundConfig, custom_outbound)
 				}
 				rule := map[string]interface{}{
 					"inboundTag":  info.Tag,
@@ -189,14 +216,6 @@ func GetCustomConfig(infos []*panel.NodeInfo, outCfg vconf.OutboundConfig) (*dns
 					continue
 				}
 				coreRouterConfig.RuleList = append(coreRouterConfig.RuleList, rawRule)
-				if hasOutboundWithTag(coreOutboundConfig, outbound.Tag) {
-					continue
-				}
-				custom_outbound, err := outbound.Build()
-				if err != nil {
-					continue
-				}
-				coreOutboundConfig = append(coreOutboundConfig, custom_outbound)
 			case "default_out":
 				if route.ActionValue == nil {
 					continue
@@ -205,6 +224,13 @@ func GetCustomConfig(infos []*panel.NodeInfo, outCfg vconf.OutboundConfig) (*dns
 				err := json.Unmarshal([]byte(*route.ActionValue), outbound)
 				if err != nil {
 					continue
+				}
+				if !hasOutboundWithTag(coreOutboundConfig, outbound.Tag) {
+					custom_outbound, err := outbound.Build()
+					if err != nil {
+						continue
+					}
+					coreOutboundConfig = append(coreOutboundConfig, custom_outbound)
 				}
 				rule := map[string]interface{}{
 					"inboundTag":  info.Tag,
@@ -216,14 +242,6 @@ func GetCustomConfig(infos []*panel.NodeInfo, outCfg vconf.OutboundConfig) (*dns
 					continue
 				}
 				coreRouterConfig.RuleList = append(coreRouterConfig.RuleList, rawRule)
-				if hasOutboundWithTag(coreOutboundConfig, outbound.Tag) {
-					continue
-				}
-				custom_outbound, err := outbound.Build()
-				if err != nil {
-					continue
-				}
-				coreOutboundConfig = append(coreOutboundConfig, custom_outbound)
 			default:
 				continue
 			}
