@@ -17,16 +17,29 @@ import (
 )
 
 func (c *Controller) renewCertTask(_ context.Context) error {
-	l, err := NewLego(c.info.Common.CertInfo)
-	if err != nil {
-		log.WithField("tag", c.tag).Info("new lego error: ", err)
-		return nil
-	}
-	err = l.RenewCert()
-	if err != nil {
-		log.WithField("tag", c.tag).Info("renew cert error: ", err)
-		return nil
-	}
+	// Run the actual (potentially multi-minute, for ACME DNS-01 propagation)
+	// renewal detached from this task's execution-timeout. The generic Task
+	// wrapper (common/task) treats an Execute that runs past min(5*Interval,
+	// 5min)=5min as "the task hung -> reload the whole node", which is wrong
+	// for cert renewal, where a multi-minute runtime is normal, not a hang:
+	// a slow-but-healthy renewal used to spuriously reload the entire node
+	// while the real lego HTTP call kept running orphaned in the background.
+	// This task fires at most once per 24h, so a detached goroutine can't
+	// overlap with itself.
+	//
+	// Errors now log at Error level (was Info, effectively invisible at
+	// production log levels) so a persistently-failing renewal is actually
+	// noticeable before the cert expires.
+	go func() {
+		l, err := NewLego(c.info.Common.CertInfo)
+		if err != nil {
+			log.WithField("tag", c.tag).Error("renew cert: new lego error: ", err)
+			return
+		}
+		if err := l.RenewCert(); err != nil {
+			log.WithField("tag", c.tag).Error("renew cert failed: ", err)
+		}
+	}()
 	return nil
 }
 

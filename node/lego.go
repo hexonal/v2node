@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-acme/lego/v4/certcrypto"
 	"github.com/go-acme/lego/v4/lego"
+	log "github.com/sirupsen/logrus"
 	panel "github.com/wyx2685/v2node/api/v2board"
 	"github.com/wyx2685/v2node/common/file"
 )
@@ -110,18 +111,28 @@ func (l *Lego) RenewCert() error {
 	if err != nil {
 		return fmt.Errorf("read cert file error: %s", err)
 	}
-	// CheckCert only ever returns (false, err) on a parse failure, (false,
-	// nil) when the cert is still valid, or (true, nil) when renewal is due -
-	// checking err first (instead of branching on !e first, which took the
-	// "no renewal needed" path on ANY parse failure, silently) so a
-	// corrupted/truncated on-disk cert file surfaces as a real error instead
-	// of permanently and silently disabling renewal.
-	e, err := l.CheckCert(file)
+	// CheckCert returns (false, daysLeft, err) on a parse failure, (false,
+	// daysLeft, nil) when the cert is still valid, or (true, daysLeft, nil)
+	// when renewal is due - checking err first (instead of branching on the
+	// bool first, which took the "no renewal needed" path on ANY parse
+	// failure, silently) so a corrupted/truncated on-disk cert file surfaces
+	// as a real error instead of permanently and silently disabling renewal.
+	needsRenewal, daysLeft, err := l.CheckCert(file)
 	if err != nil {
 		return fmt.Errorf("check cert error: %s", err)
 	}
-	if !e {
+	if !needsRenewal {
+		// Log the expiry status even on the happy path - previously the
+		// whole "still valid" branch was completely silent, so an operator
+		// had no way to see that renewal was actually working / how close
+		// to expiry a cert was without inspecting the file by hand.
+		log.Infof("cert %s valid for %d more days, no renewal needed", l.config.CertDomain, daysLeft)
 		return nil
+	}
+	if daysLeft <= 7 {
+		log.Warnf("cert %s expires in %d days, attempting renewal now", l.config.CertDomain, daysLeft)
+	} else {
+		log.Infof("cert %s expires in %d days, attempting renewal", l.config.CertDomain, daysLeft)
 	}
 	res, err := l.client.Certificate.Renew(certificate.Resource{
 		Domain:      l.config.CertDomain,
@@ -134,19 +145,17 @@ func (l *Lego) RenewCert() error {
 	if err != nil {
 		return fmt.Errorf("write certificate error: %s", err)
 	}
+	log.Infof("cert %s renewed successfully", l.config.CertDomain)
 	return nil
 }
 
-func (l *Lego) CheckCert(file []byte) (bool, error) {
+func (l *Lego) CheckCert(file []byte) (needsRenewal bool, daysLeft int, err error) {
 	cert, err := certcrypto.ParsePEMCertificate(file)
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
-	notAfter := int(time.Until(cert.NotAfter).Hours() / 24.0)
-	if notAfter > 30 {
-		return false, nil
-	}
-	return true, nil
+	daysLeft = int(time.Until(cert.NotAfter).Hours() / 24.0)
+	return daysLeft <= 30, daysLeft, nil
 }
 func (l *Lego) parseParams(path string) string {
 	r := strings.NewReplacer("{domain}", l.config.CertDomain,
