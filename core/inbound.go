@@ -102,8 +102,13 @@ func buildInbound(nodeInfo *panel.NodeInfo, tag string, nodeCfg *vconf.NodeConfi
 	}
 	// Set socket settings for trusted X-Forwarded-For headers
 	if len(nodeInfo.Common.TrustedXForwardedFor) > 0 {
+		// Used to hard-error here if StreamSetting was still nil - but e.g. a
+		// shadowsocks node with no NetworkSettings configured never gets a
+		// StreamSetting from buildShadowsocks, so setting TrustedXForwardedFor
+		// on such a node failed the whole inbound build for no real reason.
+		// Auto-create instead, same as the Sockopt block further down.
 		if in.StreamSetting == nil {
-			return nil, errors.New("stream settings must be configured to set trusted X-Forwarded-For headers")
+			in.StreamSetting = &coreConf.StreamConfig{}
 		}
 		if in.StreamSetting.SocketSettings == nil {
 			in.StreamSetting.SocketSettings = &coreConf.SocketConfig{}
@@ -194,8 +199,16 @@ func buildInbound(nodeInfo *panel.NodeInfo, tag string, nodeCfg *vconf.NodeConfi
 			ShortIds:     shortIds,
 			Mldsa65Seed:  v.TlsSettings.Mldsa65Seed,
 		}
-	default:
+	case panel.None:
 		break
+	default:
+		// An unrecognized Security value used to silently fall through to
+		// "no TLS/REALITY at all" (same as panel.None) — the panel's own
+		// validation already restricts the tls column to {0,1,2}, so this
+		// should be unreachable in practice, but a corrupt/future value
+		// silently downgrading a node to plaintext is exactly the kind of
+		// failure that should be loud instead of quiet.
+		return nil, fmt.Errorf("node %d: unrecognized security type %d", nodeInfo.Id, nodeInfo.Security)
 	}
 	// Wire XMC (finalmask.tcp) — a TCP-only mask that wraps the raw listener
 	// before TLS/REALITY negotiate. Two independent opt-in gates before it
@@ -233,7 +246,16 @@ func buildInbound(nodeInfo *panel.NodeInfo, tag string, nodeCfg *vconf.NodeConfi
 	if nodeCfg.AllowFinalMaskTcp && nodeInfo.Common.FinalMaskTcp == "xmc" {
 		switch nodeInfo.Type {
 		case "vless", "vmess", "trojan", "anytls":
-			if nodeInfo.Common.Network != "tcp" {
+			// buildVLess/buildVMess/buildTrojan/buildAnyTLS all treat an empty
+			// Network as "tcp" (see their own normalization above/below) - this
+			// gate must use the same rule, or a node with Network left blank
+			// (which every one of those builders happily runs as tcp) gets
+			// silently refused here instead.
+			network := nodeInfo.Common.Network
+			if network == "" {
+				network = "tcp"
+			}
+			if network != "tcp" {
 				log.Warnf("node %d: finalmask_tcp=xmc requires network=tcp, got %q; ignoring", nodeInfo.Id, nodeInfo.Common.Network)
 				break
 			}
@@ -332,12 +354,20 @@ func buildVLess(nodeInfo *panel.NodeInfo, inbound *coreConf.InboundDetourConfig)
 		return fmt.Errorf("marshal vless config error: %s", err)
 	}
 	inbound.Settings = (*json.RawMessage)(&s)
+	// An empty NetworkSettings used to skip setting StreamSetting entirely,
+	// so a node with Network="ws" but no explicit per-transport settings
+	// silently built as xray-core's bare default (plain tcp) instead of ws
+	// — matching buildTrojan/buildAnyTLS's always-set-Network pattern below.
+	network := v.Network
+	if network == "" {
+		network = "tcp"
+	}
+	t := coreConf.TransportProtocol(network)
+	inbound.StreamSetting = &coreConf.StreamConfig{Network: &t}
 	if len(v.NetworkSettings) == 0 {
 		return nil
 	}
-	t := coreConf.TransportProtocol(v.Network)
-	inbound.StreamSetting = &coreConf.StreamConfig{Network: &t}
-	switch v.Network {
+	switch network {
 	case "tcp":
 		err := json.Unmarshal(v.NetworkSettings, &inbound.StreamSetting.TCPSettings)
 		if err != nil {
@@ -379,12 +409,19 @@ func buildVMess(nodeInfo *panel.NodeInfo, inbound *coreConf.InboundDetourConfig)
 		return fmt.Errorf("marshal vmess settings error: %s", err)
 	}
 	inbound.Settings = (*json.RawMessage)(&s)
+	// See the matching comment in buildVLess: an empty NetworkSettings used
+	// to skip StreamSetting entirely, silently defaulting to plain tcp
+	// regardless of the configured Network.
+	network := v.Network
+	if network == "" {
+		network = "tcp"
+	}
+	t := coreConf.TransportProtocol(network)
+	inbound.StreamSetting = &coreConf.StreamConfig{Network: &t}
 	if len(v.NetworkSettings) == 0 {
 		return nil
 	}
-	t := coreConf.TransportProtocol(v.Network)
-	inbound.StreamSetting = &coreConf.StreamConfig{Network: &t}
-	switch v.Network {
+	switch network {
 	case "tcp":
 		err := json.Unmarshal(v.NetworkSettings, &inbound.StreamSetting.TCPSettings)
 		if err != nil {
@@ -534,9 +571,10 @@ func buildShadowsocks(nodeInfo *panel.NodeInfo, inbound *coreConf.InboundDetourC
 					}
 				}
 				headerJSON, err := json.Marshal(httpHeader)
-				if err == nil {
-					inbound.StreamSetting.TCPSettings.HeaderConfig = json.RawMessage(headerJSON)
+				if err != nil {
+					return fmt.Errorf("marshal shadowsocks http obfs header error: %s", err)
 				}
+				inbound.StreamSetting.TCPSettings.HeaderConfig = json.RawMessage(headerJSON)
 			}
 		}
 	}
@@ -586,7 +624,18 @@ func buildHysteria2(nodeInfo *panel.NodeInfo, inbound *coreConf.InboundDetourCon
 		}
 	}
 	if s.Obfs != "" && s.ObfsPassword != "" {
-		rawobfsJSON := json.RawMessage(fmt.Sprintf(`{"password":"%s"}`, s.ObfsPassword))
+		// Was fmt.Sprintf(`{"password":"%s"}`, s.ObfsPassword) - a password
+		// containing a `"` (or backslash) produced malformed JSON, and one
+		// containing `","x":"y` would inject an arbitrary extra JSON key.
+		// Only reachable via an admin manually setting obfs_password (the
+		// normal auto-generated Str::random(16) password never hits this),
+		// but "your own config can silently corrupt itself" is worth fixing
+		// with a real marshal regardless.
+		obfsBytes, err := json.Marshal(map[string]string{"password": s.ObfsPassword})
+		if err != nil {
+			return fmt.Errorf("marshal obfs password error: %s", err)
+		}
+		rawobfsJSON := json.RawMessage(obfsBytes)
 		finalmask.Udp = []conf.Mask{
 			{
 				Type:     s.Obfs,
@@ -642,10 +691,19 @@ func buildAnyTLS(nodeInfo *panel.NodeInfo, inbound *coreConf.InboundDetourConfig
 	settings := &coreConf.AnyTLSServerConfig{
 		PaddingScheme: v.PaddingScheme,
 	}
-	t := coreConf.TransportProtocol(v.Network)
+	// buildTrojan already normalizes an empty network to "tcp" - this builder
+	// was missing the same default, so an AnyTLS node with an unset network
+	// field (panel validation already restricts it to a known set today, but
+	// this shouldn't rely on that alone) would build with an empty transport
+	// protocol instead of silently doing the right thing.
+	network := v.Network
+	if network == "" {
+		network = "tcp"
+	}
+	t := coreConf.TransportProtocol(network)
 	inbound.StreamSetting = &coreConf.StreamConfig{Network: &t}
 	if len(v.NetworkSettings) != 0 {
-		switch v.Network {
+		switch network {
 		case "tcp":
 			err := json.Unmarshal(v.NetworkSettings, &inbound.StreamSetting.TCPSettings)
 			if err != nil {

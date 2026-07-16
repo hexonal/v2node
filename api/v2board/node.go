@@ -50,7 +50,6 @@ type CommonNode struct {
 	TrustedXForwardedFor []string        `json:"trusted_x_forwarded_for"`
 	Encryption           string          `json:"encryption"`
 	EncryptionSettings   EncSettings     `json:"encryption_settings"`
-	ServerName           string          `json:"server_name"`
 	Flow                 string          `json:"flow"`
 	// FinalMaskTcp is the TCP-layer finalmask type ("xmc" is the only value
 	// currently wired end-to-end). Empty/absent = no finalmask attached,

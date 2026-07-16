@@ -158,10 +158,13 @@ func (v *V2Core) AddUsers(p *AddUsersParams) (added int, err error) {
 	case "trojan":
 		users = buildTrojanUsers(p.Tag, p.Users)
 	case "shadowsocks":
-		users = buildSSUsers(p.Tag,
+		users, err = buildSSUsers(p.Tag,
 			p.Users,
 			p.Common.Cipher,
 			p.Common.ServerKey)
+		if err != nil {
+			return 0, err
+		}
 	case "hysteria2":
 		users = buildHysteria2Users(p.Tag, p.Users)
 	case "tuic":
@@ -249,15 +252,18 @@ func buildTrojanUser(tag string, userInfo *panel.UserInfo) (user *protocol.User)
 	}
 }
 
-func buildSSUsers(tag string, userInfo []panel.UserInfo, cypher string, serverKey string) (users []*protocol.User) {
+func buildSSUsers(tag string, userInfo []panel.UserInfo, cypher string, serverKey string) (users []*protocol.User, err error) {
 	users = make([]*protocol.User, len(userInfo))
 	for i := range userInfo {
-		users[i] = buildSSUser(tag, &userInfo[i], cypher, serverKey)
+		users[i], err = buildSSUser(tag, &userInfo[i], cypher, serverKey)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return users
+	return users, nil
 }
 
-func buildSSUser(tag string, userInfo *panel.UserInfo, cypher string, serverKey string) (user *protocol.User) {
+func buildSSUser(tag string, userInfo *panel.UserInfo, cypher string, serverKey string) (user *protocol.User, err error) {
 	if serverKey == "" {
 		ssAccount := &shadowsocks.Account{
 			Password:   userInfo.Uuid,
@@ -267,7 +273,7 @@ func buildSSUser(tag string, userInfo *panel.UserInfo, cypher string, serverKey 
 			Level:   0,
 			Email:   format.UserTag(tag, userInfo.Uuid),
 			Account: serial.ToTypedMessage(ssAccount),
-		}
+		}, nil
 	} else {
 		var keyLength int
 		switch cypher {
@@ -277,6 +283,13 @@ func buildSSUser(tag string, userInfo *panel.UserInfo, cypher string, serverKey 
 			keyLength = 32
 		case "2022-blake3-chacha20-poly1305":
 			keyLength = 32
+		default:
+			// Used to fall through with keyLength left at its zero value,
+			// silently slicing userInfo.Uuid[:0] into an empty key - every
+			// user on the node would get a shadowsocks_2022 account with an
+			// empty base64 key instead of a build error, failing at auth
+			// time on every connection with no indication why.
+			return nil, fmt.Errorf("unsupported shadowsocks-2022 cipher: %s", cypher)
 		}
 		ssAccount := &shadowsocks_2022.Account{
 			Key: base64.StdEncoding.EncodeToString([]byte(userInfo.Uuid[:keyLength])),
@@ -285,7 +298,7 @@ func buildSSUser(tag string, userInfo *panel.UserInfo, cypher string, serverKey 
 			Level:   0,
 			Email:   format.UserTag(tag, userInfo.Uuid),
 			Account: serial.ToTypedMessage(ssAccount),
-		}
+		}, nil
 	}
 }
 
